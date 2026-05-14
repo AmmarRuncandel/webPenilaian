@@ -77,7 +77,7 @@ export default function DashboardPenilaian() {
           out[field] = Number.isFinite(value) ? value : 0;
         });
         out.kelompok_id = typeof out.kelompok_id === 'string' ? parseInt(out.kelompok_id) : out.kelompok_id;
-        return out as PenilaianData;
+        return out as unknown as PenilaianData;
       });
 
       setPesertaList(normalized || []);
@@ -115,7 +115,7 @@ export default function DashboardPenilaian() {
             out[field] = Number.isFinite(value as number) ? value : 0;
           });
           out.kelompok_id = typeof out.kelompok_id === 'string' ? parseInt(out.kelompok_id as string) : out.kelompok_id;
-          return out as PenilaianData;
+          return out as unknown as PenilaianData;
         });
 
         if (!cancelled) {
