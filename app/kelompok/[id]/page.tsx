@@ -1,22 +1,22 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft,
-  Save,
   Loader2,
   CheckCircle2,
   XCircle,
   ChevronDown,
   ChevronUp,
   Info,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { supabase, PenilaianData, MAX_VALUES } from '@/lib/supabase';
+import { PenilaianData, MAX_VALUES } from '@/lib/supabase';
 
-// Helper untuk menghitung total per kategori (AKUMULASI POIN MURNI)
 const calculateTotals = (data: PenilaianData) => {
   const totalHadir = data.p1 + data.p2 + data.p3 + data.p4 + data.p5 + data.mentoring;
   const totalTugas = data.tugas_web + data.tugas_video + data.tugas_swot;
@@ -28,6 +28,8 @@ const calculateTotals = (data: PenilaianData) => {
   return { totalHadir, totalTugas, totalAktif, totalEtika, nilaiAkhir, status };
 };
 
+const MASTER_PASSWORD = 'ketuplaklkmbaik';
+
 export default function DashboardPenilaian() {
   const params = useParams();
   const kelompokId = parseInt(params.id as string);
@@ -37,14 +39,21 @@ export default function DashboardPenilaian() {
   const [saving, setSaving] = useState(false);
   const [showPanduan, setShowPanduan] = useState(true);
   const [saveMessage, setSaveMessage] = useState('');
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    return sessionStorage.getItem('lkm_mentor_auth') === 'true';
+  });
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [inputPassword, setInputPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [newPesertaName, setNewPesertaName] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
 
-  // Debounce timer refs untuk setiap peserta
   const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
-  // Fetch data dari Supabase
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
@@ -52,25 +61,21 @@ export default function DashboardPenilaian() {
       const json = await res.json();
       if (!res.ok) throw json;
 
-      const rows = json.data || [];
-
-      // Convert numeric-like fields to numbers (Supabase may return numeric as strings)
-      const numericFields = [
-        'p1','p2','p3','p4','p5','mentoring',
-        'tugas_web','tugas_video','tugas_swot',
-        'aktif_mentor','aktif_kader',
-        'etika_persyaratan','etika_sikap','etika_mentor','etika_kader'
+      const rows = (json.data || []) as Array<Record<string, unknown>>;
+      const numericFields: Array<keyof PenilaianData> = [
+        'p1', 'p2', 'p3', 'p4', 'p5', 'mentoring',
+        'tugas_web', 'tugas_video', 'tugas_swot',
+        'aktif_mentor', 'aktif_kader',
+        'etika_persyaratan', 'etika_sikap', 'etika_mentor', 'etika_kader',
       ];
 
-      const normalized = rows.map((r: any) => {
-        const out: any = { ...r };
-        numericFields.forEach((f) => {
-          if (out[f] === null || out[f] === undefined) out[f] = 0;
-          // Try to coerce to number
-          const n = typeof out[f] === 'string' ? parseFloat(out[f]) : out[f];
-          out[f] = Number.isFinite(n) ? n : 0;
+      const normalized = rows.map((row) => {
+        const out: Record<string, unknown> = { ...row };
+        numericFields.forEach((field) => {
+          if (out[field] === null || out[field] === undefined) out[field] = 0;
+          const value = typeof out[field] === 'string' ? parseFloat(out[field]) : out[field];
+          out[field] = Number.isFinite(value) ? value : 0;
         });
-        // Ensure kelompok_id is number
         out.kelompok_id = typeof out.kelompok_id === 'string' ? parseInt(out.kelompok_id) : out.kelompok_id;
         return out as PenilaianData;
       });
@@ -85,51 +90,84 @@ export default function DashboardPenilaian() {
   }, [kelompokId]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    let cancelled = false;
 
-  // Cleanup debounce timers on unmount
-  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const res = await fetch(`/api/penilaian?kelompok_id=${kelompokId}`);
+        const json = await res.json();
+        if (!res.ok) throw json;
+
+        const rows = (json.data || []) as Array<Record<string, unknown>>;
+        const numericFields: Array<keyof PenilaianData> = [
+          'p1', 'p2', 'p3', 'p4', 'p5', 'mentoring',
+          'tugas_web', 'tugas_video', 'tugas_swot',
+          'aktif_mentor', 'aktif_kader',
+          'etika_persyaratan', 'etika_sikap', 'etika_mentor', 'etika_kader',
+        ];
+
+        const normalized = rows.map((row) => {
+          const out: Record<string, unknown> = { ...row };
+          numericFields.forEach((field) => {
+            if (out[field] === null || out[field] === undefined) out[field] = 0;
+            const value = typeof out[field] === 'string' ? parseFloat(out[field]) : out[field];
+            out[field] = Number.isFinite(value as number) ? value : 0;
+          });
+          out.kelompok_id = typeof out.kelompok_id === 'string' ? parseInt(out.kelompok_id as string) : out.kelompok_id;
+          return out as PenilaianData;
+        });
+
+        if (!cancelled) {
+          setPesertaList(normalized || []);
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        alert('Gagal memuat data. Silakan refresh halaman.');
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadData();
+
     return () => {
-      Object.values(debounceTimers.current).forEach(timer => clearTimeout(timer));
+      cancelled = true;
+    };
+  }, [kelompokId]);
+
+  useEffect(() => {
+    const timers = debounceTimers.current;
+
+    return () => {
+      Object.values(timers).forEach((timer) => clearTimeout(timer));
     };
   }, []);
 
-  // Handle perubahan input dengan validasi & debounced auto-save
-  const handleInputChange = (
-    id: string,
-    field: keyof PenilaianData,
-    value: string
-  ) => {
+  const handleInputChange = (id: string, field: keyof PenilaianData, value: string) => {
     let numValue = parseFloat(value) || 0;
-    
-    // VALIDASI: Jika melebihi batas maksimal, set ke nilai maksimal
+
     const maxValue = MAX_VALUES[field as keyof typeof MAX_VALUES];
     if (maxValue !== undefined && numValue > maxValue) {
       numValue = maxValue;
     }
-    
-    // Pastikan tidak negatif
+
     if (numValue < 0) {
       numValue = 0;
     }
 
-    // Update local state INSTANTLY untuk UI responsif
-    setPesertaList((prev) =>
-      prev.map((peserta) =>
-        peserta.id === id ? { ...peserta, [field]: numValue } : peserta
-      )
+    setPesertaList((previous) =>
+      previous.map((peserta) => (peserta.id === id ? { ...peserta, [field]: numValue } : peserta))
     );
 
-    // Clear existing debounce timer untuk peserta ini
     if (debounceTimers.current[id]) {
       clearTimeout(debounceTimers.current[id]);
     }
 
-    // Set new debounce timer (auto-save setelah 1 detik tidak ada input)
     debounceTimers.current[id] = setTimeout(async () => {
       try {
-        // Call server API route that uses service_role key to bypass RLS
         const res = await fetch('/api/penilaian', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -142,44 +180,32 @@ export default function DashboardPenilaian() {
         console.log(`Auto-saved ${field} for ${id}`);
       } catch (error) {
         console.error('Error auto-saving:', error);
-        // Revert on error
         fetchData();
       }
-    }, 1000); // 1 detik debounce
+    }, 1000);
   };
 
-  // Simpan semua perubahan manual (jika mentor klik tombol)
-  const handleSaveChanges = async () => {
-    try {
-      setSaving(true);
-      setSaveMessage('');
-
-      // Clear all pending debounce timers
-      Object.values(debounceTimers.current).forEach(timer => clearTimeout(timer));
-      debounceTimers.current = {};
-
-      // Bulk update via server API that uses service_role key
-      const res = await fetch('/api/penilaian', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pesertaList }),
-      });
-
-      const json = await res.json();
-      if (!res.ok) throw json;
-
-      setSaveMessage('Semua perubahan berhasil disimpan!');
-      setIsEditMode(false);
-      setTimeout(() => setSaveMessage(''), 3000);
-    } catch (error) {
-      console.error('Error saving data:', error);
-      alert('Gagal menyimpan data. Silakan coba lagi.');
-    } finally {
-      setSaving(false);
+  const handleVerifyPassword = () => {
+    if (inputPassword === MASTER_PASSWORD) {
+      sessionStorage.setItem('lkm_mentor_auth', 'true');
+      setIsEditMode(true);
+      setShowPasswordModal(false);
+      setInputPassword('');
+      setPasswordError('');
+      return;
     }
+
+    setPasswordError('Password salah! Anda bukan mentor.');
   };
 
-  // Tambah peserta baru
+  const handleLogout = () => {
+    sessionStorage.removeItem('lkm_mentor_auth');
+    setIsEditMode(false);
+    setShowPasswordModal(false);
+    setInputPassword('');
+    setPasswordError('');
+  };
+
   const handleAddPeserta = async () => {
     if (!newPesertaName.trim()) {
       alert('Nama peserta tidak boleh kosong');
@@ -198,7 +224,6 @@ export default function DashboardPenilaian() {
       const json = await res.json();
       if (!res.ok) throw json;
 
-      // Refresh data
       await fetchData();
       setNewPesertaName('');
       setShowAddForm(false);
@@ -211,6 +236,10 @@ export default function DashboardPenilaian() {
       setSaving(false);
     }
   };
+
+  const inputClass = isEditMode
+    ? 'w-full bg-slate-950 border border-slate-700 rounded text-center focus:border-sky-500 focus:outline-none text-slate-200 min-w-[50px] px-2 py-1'
+    : 'w-full bg-transparent border-none text-white text-center focus:outline-none min-w-[50px] px-2 py-1';
 
   if (loading) {
     return (
@@ -226,110 +255,69 @@ export default function DashboardPenilaian() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-2 sm:px-4 py-4 sm:py-8">
       <div className="max-w-[1600px] mx-auto">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-4 sm:mb-6"
-        >
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-4 sm:mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 min-w-0">
               <Link href="/kelompok">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="flex items-center gap-2 text-slate-400 hover:text-sky-400 transition-colors"
-                >
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex items-center gap-2 text-slate-400 hover:text-sky-400 transition-colors">
                   <ArrowLeft className="w-5 h-5" />
                   <span className="hidden sm:inline">Kembali</span>
                 </motion.button>
               </Link>
-              <h1 className="text-2xl sm:text-3xl font-bold text-slate-100">
-                Penilaian Kelompok {kelompokId}
-              </h1>
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-100">Penilaian Kelompok {kelompokId}</h1>
             </div>
 
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-wrap justify-start sm:justify-end">
               {!isEditMode ? (
-                <>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setIsEditMode(true)}
-                    className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold shadow-lg hover:shadow-amber-500/50 transition-all"
-                  >
-                    <span>✏️</span>
-                    <span className="hidden sm:inline">Edit</span>
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowAddForm(true)}
-                    className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold shadow-lg hover:shadow-emerald-500/50 transition-all"
-                  >
-                    <span>+</span>
-                    <span className="hidden sm:inline">Tambah Data</span>
-                    <span className="sm:hidden">Tambah</span>
-                  </motion.button>
-                </>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setInputPassword('');
+                    setPasswordError('');
+                    setShowPasswordModal(true);
+                  }}
+                  className="flex items-center gap-2 bg-slate-800 text-slate-100 px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold border border-slate-700 hover:border-sky-500 hover:text-sky-300 transition-all"
+                >
+                  <Lock className="w-4 h-4" />
+                  <span>Buka Akses Mentor</span>
+                </motion.button>
               ) : (
-                <>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => {
-                      setIsEditMode(false);
-                      fetchData();
-                    }}
-                    className="flex items-center gap-2 bg-gradient-to-r from-slate-600 to-slate-700 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold shadow-lg hover:shadow-slate-500/50 transition-all"
-                  >
-                    <span>✕</span>
-                    <span className="hidden sm:inline">Batal</span>
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleSaveChanges}
-                    disabled={saving}
-                    className="flex items-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold shadow-lg hover:shadow-sky-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {saving ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span className="hidden sm:inline">Menyimpan...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Save className="w-5 h-5" />
-                        <span className="hidden sm:inline">Simpan Perubahan</span>
-                        <span className="sm:hidden">Simpan</span>
-                      </>
-                    )}
-                  </motion.button>
-                </>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 bg-slate-800 text-slate-100 px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold border border-slate-700 hover:border-rose-500 hover:text-rose-300 transition-all"
+                >
+                  <Unlock className="w-4 h-4" />
+                  <span>Tutup Akses Edit</span>
+                </motion.button>
               )}
             </div>
           </div>
 
-          {/* Save Message */}
+          {isEditMode && (
+            <div className="flex justify-end mb-2">
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => setShowAddForm(true)}
+                className="text-sm text-slate-300 hover:text-sky-300 transition-colors"
+              >
+                Tambah peserta baru
+              </motion.button>
+            </div>
+          )}
+
           {saveMessage && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-emerald-500/20 border border-emerald-500 text-emerald-400 px-4 py-2 rounded-lg flex items-center gap-2"
-            >
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="bg-emerald-500/20 border border-emerald-500 text-emerald-400 px-4 py-2 rounded-lg flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5" />
               {saveMessage}
             </motion.div>
           )}
 
-          {/* Add Peserta Form */}
-          {showAddForm && (
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 space-y-3"
-            >
+          {isEditMode && showAddForm && (
+            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 space-y-3">
               <h3 className="font-semibold text-slate-200 text-lg">Tambah Peserta Baru</h3>
               <div className="flex gap-2">
                 <input
@@ -337,7 +325,7 @@ export default function DashboardPenilaian() {
                   value={newPesertaName}
                   onChange={(e) => setNewPesertaName(e.target.value)}
                   placeholder="Masukkan nama peserta"
-                  onKeyPress={(e) => e.key === 'Enter' && handleAddPeserta()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddPeserta()}
                   className="flex-1 bg-slate-700 text-slate-200 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 <motion.button
@@ -365,12 +353,7 @@ export default function DashboardPenilaian() {
           )}
         </motion.div>
 
-        {/* Panduan Nilai */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="mb-4 sm:mb-6"
-        >
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-4 sm:mb-6">
           <button
             onClick={() => setShowPanduan(!showPanduan)}
             className="w-full bg-slate-800/50 border border-slate-700 rounded-lg p-3 sm:p-4 flex items-center justify-between hover:bg-slate-800 transition-colors"
@@ -396,9 +379,7 @@ export default function DashboardPenilaian() {
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 text-xs sm:text-sm">
                 <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
-                  <h3 className="font-semibold text-blue-400 mb-2">
-                    Rumpun Hadir (30)
-                  </h3>
+                  <h3 className="font-semibold text-blue-400 mb-2">Rumpun Hadir (30)</h3>
                   <ul className="text-slate-300 space-y-1">
                     <li>• P1-P5: 5 = 25</li>
                     <li>• Mentoring: 5</li>
@@ -406,9 +387,7 @@ export default function DashboardPenilaian() {
                 </div>
 
                 <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
-                  <h3 className="font-semibold text-emerald-400 mb-2">
-                    Rumpun Tugas (30)
-                  </h3>
+                  <h3 className="font-semibold text-emerald-400 mb-2">Rumpun Tugas (30)</h3>
                   <ul className="text-slate-300 space-y-1">
                     <li>• Web: Maks 15</li>
                     <li>• Video: Maks 5</li>
@@ -417,9 +396,7 @@ export default function DashboardPenilaian() {
                 </div>
 
                 <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-                  <h3 className="font-semibold text-amber-400 mb-2">
-                    Rumpun Aktif (20)
-                  </h3>
+                  <h3 className="font-semibold text-amber-400 mb-2">Rumpun Aktif (20)</h3>
                   <ul className="text-slate-300 space-y-1">
                     <li>• Mentor: Maks 10</li>
                     <li>• Kader: Maks 10</li>
@@ -427,9 +404,7 @@ export default function DashboardPenilaian() {
                 </div>
 
                 <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-3">
-                  <h3 className="font-semibold text-purple-400 mb-2">
-                    Rumpun Etika (20)
-                  </h3>
+                  <h3 className="font-semibold text-purple-400 mb-2">Rumpun Etika (20)</h3>
                   <ul className="text-slate-300 space-y-1">
                     <li>• Persyaratan: Maks 5</li>
                     <li>• Sikap: Maks 5</li>
@@ -442,80 +417,50 @@ export default function DashboardPenilaian() {
           )}
         </motion.div>
 
-        {/* Tabel Penilaian */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
           className="bg-slate-800/50 border border-slate-700 rounded-lg overflow-hidden"
         >
-          <div className="overflow-x-auto custom-scrollbar">
+          <div className="overflow-x-auto w-full pb-4 custom-scrollbar">
             <table className="w-full text-xs sm:text-sm">
               <thead>
                 <tr className="bg-slate-800">
                   <th
                     rowSpan={2}
-                    className="sticky left-0 z-10 bg-slate-800 px-2 sm:px-4 py-3 text-left font-semibold text-slate-200 border-r border-slate-700 min-w-[120px] sm:min-w-[150px]"
+                    className="sticky left-0 z-20 bg-slate-900 px-2 sm:px-4 py-3 text-center font-semibold text-slate-200 border-r border-slate-700 min-w-[56px]"
+                  >
+                    No
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="sticky left-14 sm:left-16 z-20 bg-slate-900 px-2 sm:px-4 py-3 text-left font-semibold text-slate-200 border-r border-slate-700 min-w-[140px] sm:min-w-[180px]"
                   >
                     Nama Peserta
                   </th>
-                  {/* Rumpun Hadir */}
-                  <th
-                    colSpan={6}
-                    className="px-2 sm:px-4 py-2 text-center font-semibold text-blue-400 bg-blue-500/10 border-x border-slate-700"
-                  >
-                    Hadir (30)
-                  </th>
-                  {/* Rumpun Tugas */}
-                  <th
-                    colSpan={3}
-                    className="px-2 sm:px-4 py-2 text-center font-semibold text-emerald-400 bg-emerald-500/10 border-x border-slate-700"
-                  >
-                    Tugas (30)
-                  </th>
-                  {/* Rumpun Aktif */}
-                  <th
-                    colSpan={2}
-                    className="px-2 sm:px-4 py-2 text-center font-semibold text-amber-400 bg-amber-500/10 border-x border-slate-700"
-                  >
-                    Aktif (20)
-                  </th>
-                  {/* Rumpun Etika */}
-                  <th
-                    colSpan={4}
-                    className="px-2 sm:px-4 py-2 text-center font-semibold text-purple-400 bg-purple-500/10 border-x border-slate-700"
-                  >
-                    Etika (20)
-                  </th>
-                  {/* Total & Status */}
-                  <th
-                    colSpan={6}
-                    className="px-2 sm:px-4 py-2 text-center font-semibold text-sky-400 bg-sky-500/10 border-l border-slate-700"
-                  >
-                    Hasil
-                  </th>
+                  <th colSpan={6} className="px-2 sm:px-4 py-2 text-center font-semibold text-blue-400 bg-blue-500/10 border-x border-slate-700">Hadir (30)</th>
+                  <th colSpan={3} className="px-2 sm:px-4 py-2 text-center font-semibold text-emerald-400 bg-emerald-500/10 border-x border-slate-700">Tugas (30)</th>
+                  <th colSpan={2} className="px-2 sm:px-4 py-2 text-center font-semibold text-amber-400 bg-amber-500/10 border-x border-slate-700">Aktif (20)</th>
+                  <th colSpan={4} className="px-2 sm:px-4 py-2 text-center font-semibold text-purple-400 bg-purple-500/10 border-x border-slate-700">Etika (20)</th>
+                  <th colSpan={6} className="px-2 sm:px-4 py-2 text-center font-semibold text-sky-400 bg-sky-500/10 border-l border-slate-700">Hasil</th>
                 </tr>
                 <tr className="bg-slate-800/70 text-slate-300">
-                  {/* Hadir */}
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-blue-500/5">P1<br/>(5)</th>
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-blue-500/5">P2<br/>(5)</th>
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-blue-500/5">P3<br/>(5)</th>
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-blue-500/5">P4<br/>(5)</th>
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-blue-500/5">P5<br/>(5)</th>
                   <th className="px-2 py-2 border-r border-slate-700 bg-blue-500/5">Mtg<br/>(5)</th>
-                  {/* Tugas */}
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-emerald-500/5">Web<br/>(15)</th>
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-emerald-500/5">Video<br/>(5)</th>
                   <th className="px-2 py-2 border-r border-slate-700 bg-emerald-500/5">SWOT<br/>(10)</th>
-                  {/* Aktif */}
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-amber-500/5">Mentor<br/>(10)</th>
                   <th className="px-2 py-2 border-r border-slate-700 bg-amber-500/5">Kader<br/>(10)</th>
-                  {/* Etika */}
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-purple-500/5">Syarat<br/>(5)</th>
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-purple-500/5">Sikap<br/>(5)</th>
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-purple-500/5">Mentor<br/>(5)</th>
                   <th className="px-2 py-2 border-r border-slate-700 bg-purple-500/5">Kader<br/>(5)</th>
-                  {/* Total */}
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-sky-500/10 font-bold">T.Hadir</th>
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-sky-500/10 font-bold">T.Tugas</th>
                   <th className="px-2 py-2 border-r border-slate-700/50 bg-sky-500/10 font-bold">T.Aktif</th>
@@ -527,17 +472,11 @@ export default function DashboardPenilaian() {
               <tbody>
                 {pesertaList.map((peserta, index) => {
                   const totals = calculateTotals(peserta);
+
                   return (
-                    <tr
-                      key={peserta.id}
-                      className={`${
-                        index % 2 === 0 ? 'bg-slate-900/30' : 'bg-slate-900/50'
-                      } hover:bg-slate-700/30 transition-colors`}
-                    >
-                      <td className="sticky left-0 z-10 bg-slate-800 px-2 sm:px-4 py-2 font-medium text-slate-200 border-r border-slate-700">
-                        {peserta.nama_peserta}
-                      </td>
-                      {/* Input Hadir */}
+                    <tr key={peserta.id} className={`${index % 2 === 0 ? 'bg-slate-900/30' : 'bg-slate-900/50'} hover:bg-slate-700/30 transition-colors`}>
+                      <td className="sticky left-0 z-20 bg-slate-900 px-2 sm:px-4 py-2 text-center font-medium text-slate-200 border-r border-slate-700 min-w-[56px]">{index + 1}</td>
+                      <td className="sticky left-14 sm:left-16 z-20 bg-slate-900 px-2 sm:px-4 py-2 font-medium text-slate-200 border-r border-slate-700 min-w-[140px] sm:min-w-[180px]">{peserta.nama_peserta}</td>
                       {(['p1', 'p2', 'p3', 'p4', 'p5', 'mentoring'] as const).map((field) => (
                         <td key={field} className="px-1 py-2 border-r border-slate-700/50 bg-blue-500/5">
                           <input
@@ -546,15 +485,12 @@ export default function DashboardPenilaian() {
                             min="0"
                             max={MAX_VALUES[field]}
                             value={peserta[field]}
-                            onChange={(e) =>
-                              handleInputChange(peserta.id, field, e.target.value)
-                            }
+                            onChange={(e) => handleInputChange(peserta.id, field, e.target.value)}
                             disabled={!isEditMode}
-                            className="w-full bg-slate-700/50 text-slate-200 px-2 py-1 rounded text-center focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[50px] disabled:cursor-not-allowed disabled:opacity-70"
+                            className={inputClass}
                           />
                         </td>
                       ))}
-                      {/* Input Tugas */}
                       {(['tugas_web', 'tugas_video', 'tugas_swot'] as const).map((field) => (
                         <td key={field} className="px-1 py-2 border-r border-slate-700/50 bg-emerald-500/5">
                           <input
@@ -563,15 +499,12 @@ export default function DashboardPenilaian() {
                             min="0"
                             max={MAX_VALUES[field]}
                             value={peserta[field]}
-                            onChange={(e) =>
-                              handleInputChange(peserta.id, field, e.target.value)
-                            }
+                            onChange={(e) => handleInputChange(peserta.id, field, e.target.value)}
                             disabled={!isEditMode}
-                            className="w-full bg-slate-700/50 text-slate-200 px-2 py-1 rounded text-center focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-[50px] disabled:cursor-not-allowed disabled:opacity-70"
+                            className={inputClass}
                           />
                         </td>
                       ))}
-                      {/* Input Aktif */}
                       {(['aktif_mentor', 'aktif_kader'] as const).map((field) => (
                         <td key={field} className="px-1 py-2 border-r border-slate-700/50 bg-amber-500/5">
                           <input
@@ -580,15 +513,12 @@ export default function DashboardPenilaian() {
                             min="0"
                             max={MAX_VALUES[field]}
                             value={peserta[field]}
-                            onChange={(e) =>
-                              handleInputChange(peserta.id, field, e.target.value)
-                            }
+                            onChange={(e) => handleInputChange(peserta.id, field, e.target.value)}
                             disabled={!isEditMode}
-                            className="w-full bg-slate-700/50 text-slate-200 px-2 py-1 rounded text-center focus:outline-none focus:ring-2 focus:ring-amber-500 min-w-[50px] disabled:cursor-not-allowed disabled:opacity-70"
+                            className={inputClass}
                           />
                         </td>
                       ))}
-                      {/* Input Etika */}
                       {(['etika_persyaratan', 'etika_sikap', 'etika_mentor', 'etika_kader'] as const).map((field) => (
                         <td key={field} className="px-1 py-2 border-r border-slate-700/50 bg-purple-500/5">
                           <input
@@ -597,35 +527,17 @@ export default function DashboardPenilaian() {
                             min="0"
                             max={MAX_VALUES[field]}
                             value={peserta[field]}
-                            onChange={(e) =>
-                              handleInputChange(peserta.id, field, e.target.value)
-                            }
+                            onChange={(e) => handleInputChange(peserta.id, field, e.target.value)}
                             disabled={!isEditMode}
-                            className="w-full bg-slate-700/50 text-slate-200 px-2 py-1 rounded text-center focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-[50px] disabled:cursor-not-allowed disabled:opacity-70"
+                            className={inputClass}
                           />
                         </td>
                       ))}
-                      {/* Total Hadir */}
-                      <td className="px-2 py-2 text-center font-semibold text-blue-400 border-r border-slate-700/50 bg-sky-500/10">
-                        {totals.totalHadir}
-                      </td>
-                      {/* Total Tugas */}
-                      <td className="px-2 py-2 text-center font-semibold text-emerald-400 border-r border-slate-700/50 bg-sky-500/10">
-                        {totals.totalTugas}
-                      </td>
-                      {/* Total Aktif */}
-                      <td className="px-2 py-2 text-center font-semibold text-amber-400 border-r border-slate-700/50 bg-sky-500/10">
-                        {totals.totalAktif}
-                      </td>
-                      {/* Total Etika */}
-                      <td className="px-2 py-2 text-center font-semibold text-purple-400 border-r border-slate-700/50 bg-sky-500/10">
-                        {totals.totalEtika}
-                      </td>
-                      {/* Nilai Akhir */}
-                      <td className="px-2 py-2 text-center font-bold text-sky-400 text-base border-r border-slate-700/50 bg-sky-500/10">
-                        {totals.nilaiAkhir}
-                      </td>
-                      {/* Status */}
+                      <td className="px-2 py-2 text-center font-semibold text-blue-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalHadir}</td>
+                      <td className="px-2 py-2 text-center font-semibold text-emerald-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalTugas}</td>
+                      <td className="px-2 py-2 text-center font-semibold text-amber-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalAktif}</td>
+                      <td className="px-2 py-2 text-center font-semibold text-purple-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalEtika}</td>
+                      <td className="px-2 py-2 text-center font-bold text-sky-400 text-base border-r border-slate-700/50 bg-sky-500/10">{totals.nilaiAkhir}</td>
                       <td className="px-2 py-2 text-center bg-sky-500/10">
                         {totals.status === 'LULUS' ? (
                           <span className="inline-flex items-center gap-1 bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full text-xs font-semibold border border-emerald-500/30">
@@ -647,7 +559,67 @@ export default function DashboardPenilaian() {
           </div>
         </motion.div>
 
-        {/* Info Footer */}
+        <AnimatePresence>
+          {showPasswordModal && (
+            <motion.div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 16 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 16 }}
+                transition={{ duration: 0.2 }}
+                className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
+              >
+                <h2 className="text-xl font-bold text-slate-100">Verifikasi Mentor</h2>
+                <p className="mt-2 text-sm text-slate-400">Masukkan password untuk membuka mode edit.</p>
+
+                <div className="mt-5 space-y-3">
+                  <input
+                    type="password"
+                    value={inputPassword}
+                    onChange={(e) => setInputPassword(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleVerifyPassword();
+                      }
+                    }}
+                    autoFocus
+                    placeholder="Password mentor"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
+                  />
+
+                  {passwordError && <p className="text-sm text-rose-400">{passwordError}</p>}
+
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPasswordModal(false);
+                        setInputPassword('');
+                        setPasswordError('');
+                      }}
+                      className="rounded-lg border border-slate-700 px-4 py-2 text-slate-300 transition-colors hover:border-slate-500 hover:text-slate-100"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleVerifyPassword}
+                      className="rounded-lg bg-sky-500 px-4 py-2 font-semibold text-white transition-colors hover:bg-sky-400"
+                    >
+                      Masuk
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -656,16 +628,10 @@ export default function DashboardPenilaian() {
         >
           <p>
             Total Peserta: <span className="text-sky-400 font-semibold">{pesertaList.length}</span> |
-            Lulus: <span className="text-emerald-400 font-semibold">
-              {pesertaList.filter((p) => calculateTotals(p).status === 'LULUS').length}
-            </span> |
-            Tidak Lulus: <span className="text-rose-400 font-semibold">
-              {pesertaList.filter((p) => calculateTotals(p).status === 'TIDAK LULUS').length}
-            </span>
+            Lulus: <span className="text-emerald-400 font-semibold">{pesertaList.filter((p) => calculateTotals(p).status === 'LULUS').length}</span> |
+            Tidak Lulus: <span className="text-rose-400 font-semibold">{pesertaList.filter((p) => calculateTotals(p).status === 'TIDAK LULUS').length}</span>
           </p>
-          <p className="mt-2 text-xs text-slate-600">
-            Nilai otomatis tersimpan 1 detik setelah Anda berhenti mengetik
-          </p>
+          <p className="mt-2 text-xs text-slate-600">Nilai otomatis tersimpan 1 detik setelah Anda berhenti mengetik</p>
         </motion.div>
       </div>
     </div>

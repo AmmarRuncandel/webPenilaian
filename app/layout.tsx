@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sistem Penilaian LKM Informatika 2026",
+  title: "Penilaian LKM Informatika 2026",
   description: "Platform digital untuk penilaian peserta LKM Informatika - Erat Persatuan, Kokoh Pembaharuan",
   icons: {
     icon: "/Logo_LKM.png",
