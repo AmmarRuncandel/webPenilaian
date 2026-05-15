@@ -1,6 +1,7 @@
 import { Users, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import supabaseAdmin from '@/lib/supabaseAdmin';
+import PrintPenilaianButton from './PrintPenilaianButton';
 
 type KelompokMentorRow = {
   kelompok_id: number | string | null;
@@ -69,6 +70,10 @@ export default async function KelompokPage() {
             <p className="text-slate-400 text-sm md:text-base">
               Pilih kelompok yang akan dinilai
             </p>
+
+            <div className="mt-4 flex justify-center sm:justify-end">
+              <PrintPenilaianButton />
+            </div>
           </div>
         </div>
 
