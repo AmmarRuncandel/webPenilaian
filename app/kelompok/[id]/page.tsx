@@ -28,6 +28,11 @@ const calculateTotals = (data: PenilaianData) => {
   return { totalHadir, totalTugas, totalAktif, totalEtika, nilaiAkhir, status };
 };
 
+const getNpmValue = (peserta: PenilaianData) => {
+  const rawValue = peserta.npm ?? peserta.npm_peserta;
+  return rawValue ? String(rawValue) : '-';
+};
+
 const MASTER_PASSWORD = 'ketuplaklkmbaik';
 
 export default function DashboardPenilaian() {
@@ -241,6 +246,8 @@ export default function DashboardPenilaian() {
     ? 'w-full bg-slate-950 border border-slate-700 rounded text-center focus:border-sky-500 focus:outline-none text-slate-200 min-w-[50px] px-2 py-1'
     : 'w-full bg-transparent border-none text-white text-center focus:outline-none min-w-[50px] px-2 py-1';
 
+  const mentorName = pesertaList[0]?.nama_mentor?.trim() || 'Belum tersedia';
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -264,7 +271,12 @@ export default function DashboardPenilaian() {
                   <span className="hidden sm:inline">Kembali</span>
                 </motion.button>
               </Link>
-              <h1 className="text-2xl sm:text-3xl font-bold text-slate-100">Penilaian Kelompok {kelompokId}</h1>
+              <div className="min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-bold text-slate-100">Penilaian Kelompok {kelompokId}</h1>
+                <p className="mt-1 text-sm sm:text-base text-slate-400">
+                  Mentor: <span className="font-semibold text-slate-200">{mentorName}</span>
+                </p>
+              </div>
             </div>
 
             <div className="flex gap-2 flex-wrap justify-start sm:justify-end">
@@ -475,10 +487,15 @@ export default function DashboardPenilaian() {
 
                   return (
                     <tr key={peserta.id} className={`${index % 2 === 0 ? 'bg-slate-900/30' : 'bg-slate-900/50'} hover:bg-slate-700/30 transition-colors`}>
-                      <td className="sticky left-0 z-20 bg-slate-900 px-2 sm:px-4 py-2 text-center font-medium text-slate-200 border-r border-slate-700 min-w-[56px]">{index + 1}</td>
-                      <td className="sticky left-14 sm:left-16 z-20 bg-slate-900 px-2 sm:px-4 py-2 font-medium text-slate-200 border-r border-slate-700 min-w-[140px] sm:min-w-[180px]">{peserta.nama_peserta}</td>
+                      <td className="sticky left-0 z-20 bg-slate-900 px-2 sm:px-4 py-3 text-center font-medium text-slate-200 border-r border-slate-700 min-w-[56px]">{index + 1}</td>
+                      <td className="sticky left-14 sm:left-16 z-20 bg-slate-900 px-2 sm:px-4 py-3 border-r border-slate-700 min-w-[160px] sm:min-w-[200px]">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-semibold text-white leading-tight">{peserta.nama_peserta}</span>
+                          <span className="text-[10px] font-mono text-slate-500 leading-tight">{getNpmValue(peserta)}</span>
+                        </div>
+                      </td>
                       {(['p1', 'p2', 'p3', 'p4', 'p5', 'mentoring'] as const).map((field) => (
-                        <td key={field} className="px-1 py-2 border-r border-slate-700/50 bg-blue-500/5">
+                        <td key={field} className="px-1 py-3 border-r border-slate-700/50 bg-blue-500/5">
                           <input
                             type="number"
                             inputMode="decimal"
@@ -492,7 +509,7 @@ export default function DashboardPenilaian() {
                         </td>
                       ))}
                       {(['tugas_web', 'tugas_video', 'tugas_swot'] as const).map((field) => (
-                        <td key={field} className="px-1 py-2 border-r border-slate-700/50 bg-emerald-500/5">
+                        <td key={field} className="px-1 py-3 border-r border-slate-700/50 bg-emerald-500/5">
                           <input
                             type="number"
                             inputMode="decimal"
@@ -506,7 +523,7 @@ export default function DashboardPenilaian() {
                         </td>
                       ))}
                       {(['aktif_mentor', 'aktif_kader'] as const).map((field) => (
-                        <td key={field} className="px-1 py-2 border-r border-slate-700/50 bg-amber-500/5">
+                        <td key={field} className="px-1 py-3 border-r border-slate-700/50 bg-amber-500/5">
                           <input
                             type="number"
                             inputMode="decimal"
@@ -520,7 +537,7 @@ export default function DashboardPenilaian() {
                         </td>
                       ))}
                       {(['etika_persyaratan', 'etika_sikap', 'etika_mentor', 'etika_kader'] as const).map((field) => (
-                        <td key={field} className="px-1 py-2 border-r border-slate-700/50 bg-purple-500/5">
+                        <td key={field} className="px-1 py-3 border-r border-slate-700/50 bg-purple-500/5">
                           <input
                             type="number"
                             inputMode="decimal"
@@ -533,12 +550,12 @@ export default function DashboardPenilaian() {
                           />
                         </td>
                       ))}
-                      <td className="px-2 py-2 text-center font-semibold text-blue-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalHadir}</td>
-                      <td className="px-2 py-2 text-center font-semibold text-emerald-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalTugas}</td>
-                      <td className="px-2 py-2 text-center font-semibold text-amber-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalAktif}</td>
-                      <td className="px-2 py-2 text-center font-semibold text-purple-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalEtika}</td>
-                      <td className="px-2 py-2 text-center font-bold text-sky-400 text-base border-r border-slate-700/50 bg-sky-500/10">{totals.nilaiAkhir}</td>
-                      <td className="px-2 py-2 text-center bg-sky-500/10">
+                      <td className="px-2 py-3 text-center font-semibold text-blue-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalHadir}</td>
+                      <td className="px-2 py-3 text-center font-semibold text-emerald-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalTugas}</td>
+                      <td className="px-2 py-3 text-center font-semibold text-amber-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalAktif}</td>
+                      <td className="px-2 py-3 text-center font-semibold text-purple-400 border-r border-slate-700/50 bg-sky-500/10">{totals.totalEtika}</td>
+                      <td className="px-2 py-3 text-center font-bold text-sky-400 text-base border-r border-slate-700/50 bg-sky-500/10">{totals.nilaiAkhir}</td>
+                      <td className="px-2 py-3 text-center bg-sky-500/10">
                         {totals.status === 'LULUS' ? (
                           <span className="inline-flex items-center gap-1 bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full text-xs font-semibold border border-emerald-500/30">
                             <CheckCircle2 className="w-3 h-3" />

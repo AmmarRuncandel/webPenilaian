@@ -12,6 +12,9 @@ export interface PenilaianData {
   id: string;
   kelompok_id: number;
   nama_peserta: string;
+  npm?: string | null;
+  npm_peserta?: string | null;
+  nama_mentor?: string | null;
   // Rumpun Hadir (Total 30)
   p1: number; // Maks 5
   p2: number; // Maks 5
