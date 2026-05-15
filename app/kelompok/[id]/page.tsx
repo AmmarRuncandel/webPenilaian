@@ -35,6 +35,8 @@ const getNpmValue = (peserta: PenilaianData) => {
 
 const MASTER_PASSWORD = 'ketuplaklkmbaik';
 
+const getInputKey = (id: string, field: keyof PenilaianData) => `${id}:${String(field)}`;
+
 export default function DashboardPenilaian() {
   const params = useParams();
   const kelompokId = parseInt(params.id as string);
@@ -56,6 +58,7 @@ export default function DashboardPenilaian() {
   const [passwordError, setPasswordError] = useState('');
   const [newPesertaName, setNewPesertaName] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [draftValues, setDraftValues] = useState<Record<string, string>>({});
 
   const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
@@ -86,6 +89,7 @@ export default function DashboardPenilaian() {
       });
 
       setPesertaList(normalized || []);
+      setDraftValues({});
     } catch (error) {
       console.error('Error fetching data:', error);
       alert('Gagal memuat data. Silakan refresh halaman.');
@@ -151,8 +155,46 @@ export default function DashboardPenilaian() {
     };
   }, []);
 
+  const handleInputFocus = (id: string, field: keyof PenilaianData) => {
+    const key = getInputKey(id, field);
+
+    setDraftValues((previous) => {
+      if (previous[key] !== undefined) {
+        return previous;
+      }
+
+      const peserta = pesertaList.find((item) => item.id === id);
+      if (!peserta || peserta[field] !== 0) {
+        return previous;
+      }
+
+      return { ...previous, [key]: '' };
+    });
+  };
+
+  const handleInputBlur = (id: string, field: keyof PenilaianData) => {
+    const key = getInputKey(id, field);
+
+    setDraftValues((previous) => {
+      if (previous[key] === undefined) {
+        return previous;
+      }
+
+      const next = { ...previous };
+      delete next[key];
+      return next;
+    });
+  };
+
   const handleInputChange = (id: string, field: keyof PenilaianData, value: string) => {
-    let numValue = parseFloat(value) || 0;
+    const key = getInputKey(id, field);
+
+    setDraftValues((previous) => ({ ...previous, [key]: value }));
+
+    let numValue = value === '' ? 0 : Number.parseFloat(value);
+    if (!Number.isFinite(numValue)) {
+      numValue = 0;
+    }
 
     const maxValue = MAX_VALUES[field as keyof typeof MAX_VALUES];
     if (maxValue !== undefined && numValue > maxValue) {
@@ -501,7 +543,9 @@ export default function DashboardPenilaian() {
                             inputMode="decimal"
                             min="0"
                             max={MAX_VALUES[field]}
-                            value={peserta[field]}
+                            value={draftValues[getInputKey(peserta.id, field)] ?? String(peserta[field])}
+                            onFocus={() => handleInputFocus(peserta.id, field)}
+                            onBlur={() => handleInputBlur(peserta.id, field)}
                             onChange={(e) => handleInputChange(peserta.id, field, e.target.value)}
                             disabled={!isEditMode}
                             className={inputClass}
@@ -515,7 +559,9 @@ export default function DashboardPenilaian() {
                             inputMode="decimal"
                             min="0"
                             max={MAX_VALUES[field]}
-                            value={peserta[field]}
+                            value={draftValues[getInputKey(peserta.id, field)] ?? String(peserta[field])}
+                            onFocus={() => handleInputFocus(peserta.id, field)}
+                            onBlur={() => handleInputBlur(peserta.id, field)}
                             onChange={(e) => handleInputChange(peserta.id, field, e.target.value)}
                             disabled={!isEditMode}
                             className={inputClass}
@@ -529,7 +575,9 @@ export default function DashboardPenilaian() {
                             inputMode="decimal"
                             min="0"
                             max={MAX_VALUES[field]}
-                            value={peserta[field]}
+                            value={draftValues[getInputKey(peserta.id, field)] ?? String(peserta[field])}
+                            onFocus={() => handleInputFocus(peserta.id, field)}
+                            onBlur={() => handleInputBlur(peserta.id, field)}
                             onChange={(e) => handleInputChange(peserta.id, field, e.target.value)}
                             disabled={!isEditMode}
                             className={inputClass}
@@ -543,7 +591,9 @@ export default function DashboardPenilaian() {
                             inputMode="decimal"
                             min="0"
                             max={MAX_VALUES[field]}
-                            value={peserta[field]}
+                            value={draftValues[getInputKey(peserta.id, field)] ?? String(peserta[field])}
+                            onFocus={() => handleInputFocus(peserta.id, field)}
+                            onBlur={() => handleInputBlur(peserta.id, field)}
                             onChange={(e) => handleInputChange(peserta.id, field, e.target.value)}
                             disabled={!isEditMode}
                             className={inputClass}
