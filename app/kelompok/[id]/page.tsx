@@ -23,7 +23,7 @@ const calculateTotals = (data: PenilaianData) => {
   const totalAktif = data.aktif_mentor + data.aktif_kader;
   const totalEtika = data.etika_persyaratan + data.etika_sikap + data.etika_mentor + data.etika_kader;
   const nilaiAkhir = totalHadir + totalTugas + totalAktif + totalEtika;
-  const status = nilaiAkhir >= 80 ? 'LULUS' : 'TIDAK LULUS';
+  const status = nilaiAkhir >= 75 ? 'LULUS' : 'TIDAK LULUS';
 
   return { totalHadir, totalTugas, totalAktif, totalEtika, nilaiAkhir, status };
 };
