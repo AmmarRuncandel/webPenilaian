@@ -36,8 +36,10 @@ export interface PenilaianData {
   etika_kader: number; // Maks 5
 }
 
+type PenilaianNumericField = Exclude<keyof PenilaianData, 'id' | 'kelompok_id' | 'nama_peserta' | 'npm' | 'npm_peserta' | 'nama_mentor'>;
+
 // Batas maksimal untuk setiap field (untuk validasi)
-export const MAX_VALUES: Record<keyof Omit<PenilaianData, 'id' | 'kelompok_id' | 'nama_peserta'>, number> = {
+export const MAX_VALUES: Record<PenilaianNumericField, number> = {
   p1: 5,
   p2: 5,
   p3: 5,
